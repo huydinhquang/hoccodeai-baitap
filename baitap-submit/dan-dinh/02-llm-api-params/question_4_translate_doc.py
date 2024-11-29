@@ -9,7 +9,10 @@ import os
 from groq import Groq
 from dotenv import load_dotenv
 import fitz
-
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.lib.pagesizes import letter
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,6 +40,7 @@ def extract_text_from_pdf(pdf_path):
             pdf_content.append(text)
             print(f"Page {page_num + 1}:")
             print(text)
+            # Only extract text from the first 5 pages for testing purposes
             if page_num > 5:
                 break
 
@@ -80,6 +84,74 @@ def get_response(messages):
     print("\n")
     return return_message
 
+def wrap_text(text, width, font_size, pdf):
+    """
+    Word-wrap text to fit within a specified width.
+    """
+    words = text.split()  # Split the text into words
+    lines = []  # List to store wrapped lines
+    current_line = ""  # Temp variable to build the current line
+
+    for word in words:
+        # Check the width of the current line + the new word
+        if pdf.stringWidth(current_line + word, 'Arial', font_size) <= width:
+            current_line += word + " "
+        else:
+            lines.append(current_line.strip())  # Save the line
+            current_line = word + " "  # Start a new line with the current word
+
+    # Append the last line
+    if current_line:
+        lines.append(current_line.strip())
+
+    return lines
+
+def create_pdf_from_text(pdf_content, output_pdf_path):
+    """
+    Create a PDF document from a list of text strings.
+    """
+    # Register a font that supports Unicode (e.g., Vietnamese diacritics)
+    pdfmetrics.registerFont(TTFont('Arial', 'Arial.ttf'))  # Use a Unicode font
+    
+    # Create a new PDF document
+    pdf = canvas.Canvas(output_pdf_path, pagesize=letter)
+    pdf.setFont('Arial', 12)  # Set font and size
+    
+    # Define margins and page width
+    x_margin = 50
+    y_margin = 750
+    page_width = 500  # Effective width for text (reduce for margins)
+    line_height = 14
+
+    # Translate and write each line of text to the PDF  
+    for text in pdf_content:
+        # Add user question to messages array
+        messages.append({"role": "user", "content": text})
+        
+        # Get response from the chat completion API
+        return_message = get_response(messages)
+
+        # Word-wrap the text
+        wrapped_lines = wrap_text(return_message, page_width, 12, pdf)
+
+        for line in wrapped_lines:
+            # Check if we need to start a new page
+            if y_margin <= 50:
+                pdf.showPage()  # Create a new page
+                pdf.setFont('Arial', 12)  # Reset the font on the new page
+                y_margin = 750  # Reset the y-margin for the new page
+            
+            # Draw the text on the PDF
+            pdf.drawString(x_margin, y_margin, line)
+            y_margin -= line_height  # Move down for the next line
+
+        # Add response to messages array
+        messages.append({"role": "assistant", "content": return_message})
+
+    # Save the PDF to the specified path
+    pdf.save()
+    print(f"PDF saved successfully as: {output_pdf_path}")
+
 # Get user input for the file path
 pdf_path = input("Enter the file path: ")
 
@@ -88,12 +160,13 @@ pdf_content = extract_text_from_pdf(pdf_path)
 
 # Define the prompt for the chat completion
 initial_prompt = f"\
-        You are a professional translator specializing in Vietnamese and domain knowledge of the provided document. Translate the provided text into Vietnamese while ensuring the following:\
-1. Use only valid and accurate Vietnamese characters, avoiding any incorrect or non-Vietnamese symbols or characters.\
-2. Ensure the translation accurately conveys the original meaning and context, focusing on clarity and professionalism.\
-3. Correctly translate technical terms and context-specific language into Vietnamese to ensure they are understood by readers in the field.\
-4. Avoid adding unrelated notes or comments; provide only the fully translated Vietnamese text.\
-5. Pay close attention to grammar, syntax, and terminology to ensure the translation is coherent and error-free."
+    You are a professional translator specializing in Vietnamese and domain knowledge of the provided document. Translate the provided text into Vietnamese while ensuring the following:\
+        1. Only output the results, no need to write the introduction or conclusion.\n\
+        2. Use only valid and accurate Vietnamese characters, avoiding any incorrect or non-Vietnamese symbols or characters.\n\
+        3. Ensure the translation accurately conveys the original meaning and context, focusing on clarity and professionalism.\n\
+        4. Make sure correctly translate technical terms and context-specific language into Vietnamese to ensure they are understood by readers in the field.\n\
+        5. Avoid adding unrelated notes or comments; provide only the fully translated Vietnamese text.\n\
+        6. Pay close attention to grammar, syntax, and terminology to ensure the translation is coherent and error-free.\n"
 
 messages = []
 
@@ -103,12 +176,14 @@ messages.extend([
     {"role": "assistant", "content": "I am waiting for the document content."}
 ])
 
-for text in pdf_content:
-    # Add user question to messages array
-    messages.append({"role": "user", "content": text})
-    
-    # Get response from the chat completion API
-    return_message = get_response(messages)
+# Get the current folder path
+current_folder_path = os.path.dirname(os.path.realpath(__file__))
 
-    # Add response to messages array
-    messages.append({"role": "assistant", "content": return_message})
+# Get the file name and extension
+file_name_with_extension = os.path.basename(pdf_path)
+
+# Define the output file path with the translated file name
+translated_file = os.path.join(current_folder_path, f"Translated_{file_name_with_extension}")
+
+# Create a PDF document with the translated text
+create_pdf_from_text(pdf_content, translated_file)
