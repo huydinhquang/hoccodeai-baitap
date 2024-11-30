@@ -40,8 +40,8 @@ def extract_text_from_pdf(pdf_path):
             pdf_content.append(text)
             print(f"Page {page_num + 1}:")
             print(text)
-            # Only extract text from the first 5 pages for testing purposes
-            if page_num > 5:
+            # Only extract text from the first 15 pages for testing purposes
+            if page_num > 15:
                 break
 
         # for page in pdf_document:
@@ -106,6 +106,48 @@ def wrap_text(text, width, font_size, pdf):
 
     return lines
 
+def summarize_text(messages, max_words=4000):
+    """
+    """
+    # Count total words in both 'role' and 'content' fields
+    total_words = sum(
+        len(str(value).split())  # Split and count words for each value
+        for message in messages
+        for key, value in message.items()  # Iterate through both 'role' and 'content'
+    )
+
+    # Check if the total words exceed the maximum limit
+    if total_words > max_words:
+        summarized_prompt = f"\
+            You are a professional summarizer. Summarize the provided text in English while ensuring the following:\n\
+                1. Only output the results, no need to write the introduction or conclusion.\n\
+                2. Make sure the summary is coherent, captures the essence of the article.\n\
+                3. Make sure the summary ends with a full stop and less than 500 words.\n\
+            "
+
+        summarized_message = []
+
+        # Set summarized_message by excluding the third and fourth items from messages
+        summarized_message = messages[:2] + messages[4:]
+
+        # Add the initial prompt to the summarized message
+        summarized_message.append({"role": "user", "content": summarized_prompt})
+
+        # Get response from the chat completion API
+        return_message = get_response(summarized_message)
+
+        # Add response to summarized message array
+        summarized_message.append({"role": "assistant", "content": return_message})
+
+        # Build the new replacement list
+        replacement = [
+            {"role": "user", "content": "Here is the summarized text"},
+            summarized_message[-1]  # Get the last item of summarized_message
+        ]
+
+        # Construct the new messages list
+        messages[:] = replacement + messages[2:4]  # Add replacement items at the top and retain the first two original items
+
 def create_pdf_from_text(pdf_content, output_pdf_path):
     """
     Create a PDF document from a list of text strings.
@@ -125,6 +167,9 @@ def create_pdf_from_text(pdf_content, output_pdf_path):
 
     # Translate and write each line of text to the PDF  
     for text in pdf_content:
+        # Summarize the text if it exceeds the word limit (tokens size)
+        summarize_text(messages)
+
         # Add user question to messages array
         messages.append({"role": "user", "content": text})
         
@@ -172,6 +217,8 @@ messages = []
 
 # Initialize the messages array with the initial prompt
 messages.extend([
+    {"role": "user", "content": "Can you help me translate this document into Vietnamese?"},
+    {"role": "assistant", "content": "Yes, I am here to help."},
     {"role": "user", "content": initial_prompt},
     {"role": "assistant", "content": "I am waiting for the document content."}
 ])
